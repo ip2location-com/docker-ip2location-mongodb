@@ -68,7 +68,7 @@ elapsed() { echo "$(( $(date +%s) - $1 ))s"; }
 
 [ ! -f /config ] && fail "Missing configuration file."
 
-banner "IP2Location / IP2Proxy Update"
+banner "IP2Location Database Update"
 
 USER_AGENT="Mozilla/5.0+(compatible; IP2Location/MongoDB-Docker; https://hub.docker.com/r/ip2location/mongodb)"
 TOKEN=$(grep '^TOKEN=' /config | cut -d= -f2-)
