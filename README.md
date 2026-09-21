@@ -1,102 +1,106 @@
 docker-ip2location-mongodb
 ==========================
 
-This is a pre-configured, ready-to-run MongoDB server with IP2Location Geolocation database setup scripts. It simplifies the development team to install and set up the IP2Location geolocation database in MongoDB server. The setup script supports the [commercial database packages](https://www.ip2location.com) and [free LITE package](https://lite.ip2location.com). Please register for a free or commercial account before running this image, as it requires a download token during the setup process.
-
-This docker image supports the IP2Location (DB1 to DB26) database.
-
+A ready-to-run MongoDB server preloaded with an [IP2Location](https://www.ip2location.com) geolocation database. Supports the commercial packages and the free [LITE](https://lite.ip2location.com) package. Register for an account first as download token is required.
 
 
 
 ## Usage
 
-1. Create a dedicated network so that your application containers can communicate with the IP2Location container by name.
+```bash
+docker network create ip2location-network
 
-    ```bash
-    docker network create ip2location-network
-    ```
+docker run --name ip2location \
+  --network ip2location-network \
+  -d \
+  -e TOKEN={DOWNLOAD_TOKEN} \
+  -e CODE={DOWNLOAD_CODE} \
+  -e IP_TYPE=IPV4 \
+  -e MONGODB_PASSWORD={MONGODB_PASSWORD} \
+  ip2location/mongodb
 
-2. Run this image as daemon using the download token and product code from [IP2Location LITE](https://lite.ip2location.com) or [IP2Location](https://www.ip2location.com) and attaching it to the network created above.
-    ```bash
-    docker run --name ip2location \
-    --network ip2location-network \
-    -d \
-    -e TOKEN={DOWNLOAD_TOKEN} \
-    -e CODE={DOWNLOAD_CODE} \
-    -e MONGODB_PASSWORD={MONGODB_PASSWORD} \
-    ip2location/mongodb
-    ```
+docker logs -f ip2location      # Wait for "✓ Setup completed"
+```
 
-    **ENV Variables**
-    `TOKEN` - Download token obtained from IP2Location.
-    `CODE` - The CSV file download code. You may get the download code from your account panel.
-    `MONGODB_PASSWORD` - Password for MongoDB admin.
+**ENV Variables**
 
-3. The installation may take seconds to minutes depending on your database sizes, downloading speed and hardware specs. You may check the installation status by viewing the container logs. Run the below command to check the container log:
+| Variable | Description |
+|---|---|
+| `TOKEN` | Download token. Required. |
+| `CODE` | Database code. Required. See below. |
+| `IP_TYPE` | `IPV4` (default) or `IPV6`. |
+| `MONGODB_PASSWORD` | Password for the `mongoAdmin` user. Random if omitted. |
 
-    ```
-    docker logs -f ip2location
-    ```
+**`CODE`** — LITE: `DB1-LITE`, `DB3-LITE`, `DB5-LITE`, `DB9-LITE`, `DB11-LITE`.
+Commercial: `DB1` … `DB26`.
 
-    You should see the line `> Setup completed` if you have successfully completed the installation.
+Only one address family is installed per container. To switch, start a fresh container with an empty `/data/db` — an existing install is not converted in place, and re-running with different settings prints a note explaining that.
+
+The admin password is written to `/config` inside the container, so `docker logs` and `docker exec` access are equivalent to knowing it.
+
+To start over:
+
+```bash
+docker rm -f ip2location
+docker volume rm ip2location-data        # if you used -v ip2location-data:/data/db
+```
+
+
+
+## Query for IP Information
+
+Two fields are stored: `ip_to` is the IP **number** and `ip_to_index` is the same number zero-padded to 40 characters and prefixed with `A`, which is what makes range comparison work as a string. Which one you filter on depends on the `IP_TYPE` you installed.
+
+**IPv4** — the IP number as a plain string:
+
+```js
+use ip2location_database
+db.ip2location_database.findOne( { ip_to: { $gte: "134744072" } } )
+```
+
+```
+{ ip_to: "134874623", country_code: "US", country_name: "United States of America", ... }
+```
+
+**IPv6** — the padded, `A`-prefixed form. For `2001:4860:4860::8888` the IP number is `42541956123769884636017138956568135816`:
+
+```js
+use ip2location_database
+db.ip2location_database.findOne( { ip_to_index: { $gte: "A0042541956123769884636017138956568135816" } } )
+```
+
+**Both search values are quoted strings.** `mongoimport --type csv` imports every CSV value as text unless the field types are declared, so the unquoted form `{ ip_to: { $gte: 134744072 } }` matches **nothing** and returns `null` — BSON compares across types by type order, and numbers sort before strings.
+
+To convert an address to an IP number see the [IP2Location FAQs](https://www.ip2location.com/faqs#technical).
+
+To store the numbers as `int64` instead of strings, declare the types at import time with `--columnsHaveTypes` and `int64(...)`; `--columnsHaveTypes` is only accepted together with `--fields`.
 
 
 
 ## Connect from an Application
 
-Run your application container on the same network. The IP2Location container is reachable by its container name (`ip2location`) as the hostname:
+Put your application on the same network and reach the container by name (`ip2location`):
 
 ```bash
 docker run --network ip2location-network -t -i {YOUR_APPLICATION}
 ```
 
-
-
-### Query for IP information
-
-1. In your application container, install MongoDB and Mongo Shell first by following the installation steps in https://docs.mongodb.com/manual/tutorial/install-mongodb-on-debian/.
-
-2. Run the Mongo Shell with the password you've specified during the installation and connect to `ip2location` host.
-
-    ```bash
-    mongosh --host ip2location -u mongoAdmin -p {MONGODB_PASSWORD} --authenticationDatabase admin
-    ```
-
-4. To test the IPv4 database, key in the commands below to query geolocation info for IPv4 address `8.8.8.8` (IP number: 134744072).
-    ```bash
-    use ip2location_database
-    db.ip2location_database.findOne( { ip_to: { $gte: 134744072 } } )
-    ```
-
-5. To test the IPv6 database, key in the commands below to query geolocation info for IPv6 address `2001:4860:4860::8888` (IP number: 42541956123769884636017138956568135816).
-    ```bash
-    use ip2location_database
-    db.ip2location_database.findOne( { ip_to_index: { $gte: "A0042541956123769884636017138956568135816" } } )
-    ```
-
-    If you don't know how to convert an IP address to IP number, please see [IP2Location FAQs](https://www.ip2location.com/faqs#technical).
-
-    
-
-    **NOTES**: The search param for IPv4 database is a number BUT the param for IPv6 database is a string of the IP number left-padded with zeroes till 40 characters and prefixed with an "A".
-
-    Also, IPv6 database is filtering on the `ip_to_index` field while IPv4 database is filtering on the `ip_to` field.
-    When querying IPv4 address using the IPv6 database, you need to convert the IPv4 address into [IPv4-mapped IPv6 address](https://blog.ip2location.com/knowledge-base/ipv4-mapped-ipv6-address/) before converting to IP number.
-
-    
-
-
-### Update IP2Location Database
-
-To update your IP2Location database to latest version, please run the following  command:
-
 ```bash
-docker exec -it ip2location ./update.sh
+mongosh --host ip2location -u mongoAdmin -p {MONGODB_PASSWORD} --authenticationDatabase admin
 ```
 
 
 
-### Articles and Tutorials
+## Update IP2Location Database
 
-You can visit the below link for more information about this docker image:
+```bash
+docker exec -it ip2location /update.sh
+```
+
+Imports a fresh copy and swaps it in with `renameCollection(..., true)`, so queries keep working against the old data until the swap. The daily download quota is limited. If you get `[QUOTA EXCEEDED]` error, please try again after 24 hours.
+
+
+
+## Articles and Tutorials
+
 [IP2Location Articles and Tutorials](https://blog.ip2location.com)
