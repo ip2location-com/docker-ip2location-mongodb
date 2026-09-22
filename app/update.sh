@@ -19,12 +19,12 @@ banner() {
 step() {
 	STEP_N=$((STEP_N + 1))
 	printf '  %s%2d.%s ' "$C_DIM" "$STEP_N" "$C_RESET"
-	if [ $((${#1} + 1)) -le "$STEP_WIDTH" ]; then
-		printf '%s ' "$1"
-		printf '%s%s%s ' "$C_DIM" "$(printf '·%.0s' $(seq 1 $((STEP_WIDTH - ${#1}))))" "$C_RESET"
-	else
-		printf '%s\n     ' "$1"
-	fi
+	local label="$1"
+	[ ${#label} -gt "$STEP_WIDTH" ] && label="${label:0:$((STEP_WIDTH - 3))}..."
+	local pad=$((STEP_WIDTH - ${#label})) dots=""
+	[ $pad -gt 0 ] && dots="$(printf '·%.0s' $(seq 1 $pad))"
+
+	printf '%s %s%s%s ' "$label" "$C_DIM" "$dots" "$C_RESET"
 	printf '%s' "$C_DIM"
 }
 ok()   { if [ -n "$1" ]; then printf '%s✓%s %s(%s)%s\n' "$C_OK" "$C_RESET" "$C_DIM" "$1" "$C_RESET"; else printf '%s✓%s\n' "$C_OK" "$C_RESET"; fi; }
@@ -48,22 +48,16 @@ summary() {
 	printf '\n'
 }
 
-# run a command quietly: its output is shown only if it fails. mongod, mongosh
-# and mongoimport all write banners and progress bars to stdout, which would
-# otherwise land in the middle of the step lines.
 quiet_run() {
 	local out rc
 	out="$("$@" 2>&1)"
 	rc=$?
 	if [ $rc -ne 0 ]; then
-		# mongoimport redraws a progress bar using carriage returns; collapse
-		# them so the real failure is what shows in the log.
 		printf '%s\n' "$out" | tr '\r' '\n' | grep -v '^[[:space:]]*$' | tail -n 15
 	fi
 	return $rc
 }
 
-# seconds since $1, for "took 42s" style detail
 elapsed() { echo "$(( $(date +%s) - $1 ))s"; }
 
 [ ! -f /config ] && fail "Missing configuration file."
